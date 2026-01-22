@@ -14,7 +14,13 @@ Examples:
 import json
 import sys
 import argparse
+import io
 from pathlib import Path
+
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -52,19 +58,13 @@ def get_plugins_dir() -> Path:
     return Path.home() / ".claude" / "plugins"
 
 
-def get_npx_skills_dir() -> Optional[Path]:
-    """Get the npx skills directory if it exists."""
-    skills_dir = Path.home() / ".skills"
-    return skills_dir if skills_dir.exists() else None
-
-
 def load_installed_plugins() -> Dict:
     """Load the installed_plugins.json file."""
     plugins_file = get_plugins_dir() / "installed_plugins.json"
     if not plugins_file.exists():
         return {"version": 2, "plugins": {}}
 
-    with open(plugins_file) as f:
+    with open(plugins_file, encoding='utf-8') as f:
         return json.load(f)
 
 
@@ -74,7 +74,7 @@ def load_known_marketplaces() -> Dict:
     if not marketplaces_file.exists():
         return {}
 
-    with open(marketplaces_file) as f:
+    with open(marketplaces_file, encoding='utf-8') as f:
         return json.load(f)
 
 
@@ -123,7 +123,7 @@ def fetch_remote_marketplace_json(repo: str) -> Optional[Dict]:
                 req = urllib.request.Request(url_head, headers={"User-Agent": "skills-updater/1.0"})
                 with urllib.request.urlopen(req, timeout=10) as response:
                     return json.loads(response.read().decode())
-            except:
+            except Exception:
                 pass
         return None
     except Exception:
@@ -142,7 +142,7 @@ def fetch_remote_commit_sha(repo: str) -> Optional[str]:
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode())
             return data.get("sha")
-    except:
+    except Exception:
         # Try HEAD branch
         url_head = url.replace("/main", "/HEAD")
         try:
@@ -153,7 +153,7 @@ def fetch_remote_commit_sha(repo: str) -> Optional[str]:
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode())
                 return data.get("sha")
-        except:
+        except Exception:
             return None
 
 
@@ -186,7 +186,7 @@ def compare_versions(local: str, remote: str) -> bool:
         remote_parts.extend([0] * (max_len - len(remote_parts)))
 
         return remote_parts > local_parts
-    except:
+    except Exception:
         # Fall back to string comparison
         return local != remote
 
@@ -389,7 +389,7 @@ def main():
 
     # Exit with code 1 if updates available (useful for CI/CD)
     updates_available = any(r.status == UpdateStatus.UPDATE_AVAILABLE for r in results)
-    sys.exit(0 if not updates_available else 0)
+    sys.exit(0 if not updates_available else 1)
 
 
 if __name__ == "__main__":

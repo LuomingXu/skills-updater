@@ -150,11 +150,11 @@ def detect_locale() -> str:
 
     # Try system locale
     try:
-        system_locale = locale.getdefaultlocale()[0]
+        system_locale = locale.getlocale()[0]
         if system_locale:
             if system_locale.lower().startswith('zh'):
                 return 'zh'
-    except:
+    except Exception:
         pass
 
     # Default to English
@@ -216,6 +216,13 @@ def t(key: str, **kwargs) -> str:
 
 
 if __name__ == "__main__":
+    import io
+    import sys
+    # Fix Windows console encoding for test
+    if sys.platform == 'win32':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
     # Test locale detection
     print(f"Detected locale: {detect_locale()}")
 

@@ -21,8 +21,14 @@ import json
 import sys
 import argparse
 import re
+import io
 from pathlib import Path
-from typing import List, Optional, Set
+
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
 import urllib.request
 from html.parser import HTMLParser
@@ -102,7 +108,7 @@ class SkillsShParser(HTMLParser):
                     elif "m" in text.lower():
                         count *= 1000000
                     self.current_skill["installs"] = int(count)
-                except:
+                except Exception:
                     pass
 
             # Capture name (usually in h3/h4 or first significant text)
@@ -130,7 +136,7 @@ def fetch_skills_sh(limit: int = 20) -> List[RecommendedSkill]:
     parser = SkillsShParser()
     try:
         parser.feed(html)
-    except:
+    except Exception:
         pass
 
     skills = []
@@ -157,41 +163,32 @@ def fetch_skills_sh(limit: int = 20) -> List[RecommendedSkill]:
     return skills
 
 
+def load_recommendations_config() -> Dict:
+    """Load recommendations from external config file."""
+    config_file = script_dir / "recommendations.json"
+    if config_file.exists():
+        try:
+            with open(config_file, encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
 def get_hardcoded_skills_sh_top(limit: int = 20) -> List[RecommendedSkill]:
-    """Return hardcoded top skills from skills.sh as fallback."""
-    # Based on data from the webpage at the time of skill creation
-    top_skills = [
-        ("vercel-react-best-practices", 25500, "vercel/react-best-practices"),
-        ("web-design-guidelines", 19200, "webdesign/guidelines"),
-        ("remotion-best-practices", 2200, "remotion-dev/remotion-best-practices"),
-        ("nextjs-cursor-rules", 1800, "vercel/nextjs-cursor-rules"),
-        ("ai-coding-standards", 1500, "anthropic/ai-coding-standards"),
-        ("typescript-best-practices", 1200, "typescript-skills/best-practices"),
-        ("react-native-guidelines", 1100, "react-native/guidelines"),
-        ("tailwind-design-system", 950, "tailwindlabs/design-system"),
-        ("python-clean-code", 900, "python-skills/clean-code"),
-        ("security-best-practices", 850, "security-skills/best-practices"),
-        ("api-design-patterns", 800, "api-skills/design-patterns"),
-        ("testing-strategies", 750, "testing-skills/strategies"),
-        ("devops-automation", 700, "devops-skills/automation"),
-        ("database-optimization", 650, "database-skills/optimization"),
-        ("frontend-performance", 600, "frontend-skills/performance"),
-        ("backend-architecture", 550, "backend-skills/architecture"),
-        ("mobile-development", 500, "mobile-skills/development"),
-        ("cloud-infrastructure", 450, "cloud-skills/infrastructure"),
-        ("data-engineering", 400, "data-skills/engineering"),
-        ("machine-learning-ops", 350, "ml-skills/ops"),
-    ]
+    """Return top skills from config file as fallback."""
+    config = load_recommendations_config()
+    fallback_trending = config.get("fallback_trending", [])
 
     skills = []
-    for name, installs, repo in top_skills[:limit]:
+    for item in fallback_trending[:limit]:
         skills.append(RecommendedSkill(
-            name=name,
-            installs=installs,
+            name=item.get("name", ""),
+            installs=item.get("installs"),
             source="skills.sh",
-            repo=repo,
+            repo=item.get("repo"),
             description=None,
-            install_command=f"npx skills add {repo}"
+            install_command=f"npx skills add {item.get('repo', '')}"
         ))
 
     return skills
@@ -205,9 +202,9 @@ def get_installed_categories() -> Set[str]:
         return set()
 
     try:
-        with open(plugins_file) as f:
+        with open(plugins_file, encoding='utf-8') as f:
             data = json.load(f)
-    except:
+    except Exception:
         return set()
 
     # Extract keywords from skill names
@@ -234,39 +231,9 @@ def get_installed_categories() -> Set[str]:
 
 def get_personalized_recommendations(installed_categories: Set[str], limit: int = 5) -> List[RecommendedSkill]:
     """Get personalized skill recommendations based on installed categories."""
-    recommendations_by_category = {
-        "developer-tools": [
-            ("github-ops", "daymade/claude-code-skills", "GitHub CLI operations for PRs, issues, and workflows"),
-            ("commit-commands", "anthropics/claude-plugins-official", "Smart git commit message generation"),
-        ],
-        "testing": [
-            ("playwright-skill", "lackeyjb/playwright-skill", "Browser automation and web testing"),
-            ("qa-expert", "daymade/claude-code-skills", "Comprehensive QA testing infrastructure"),
-        ],
-        "frontend": [
-            ("frontend-design", "anthropics/skills", "Production-grade frontend interfaces"),
-            ("canvas-design", "anthropics/skills", "Visual design with canvas-based components"),
-        ],
-        "document-tools": [
-            ("document-skills", "anthropics/skills", "Excel, Word, PowerPoint, PDF processing"),
-            ("markdown-tools", "daymade/claude-code-skills", "Document to markdown conversion"),
-        ],
-        "security": [
-            ("security-guidance", "anthropics/claude-plugins-official", "Security best practices guidance"),
-            ("repomix-safe-mixer", "daymade/claude-code-skills", "Secure code packaging"),
-        ],
-        "learning": [
-            ("learning-output-style", "anthropics/claude-plugins-official", "Educational explanations style"),
-            ("explanatory-output-style", "anthropics/claude-plugins-official", "Detailed explanatory output"),
-        ],
-    }
-
-    # Default recommendations if no categories matched
-    default_recommendations = [
-        ("skill-creator", "daymade/claude-code-skills", "Create effective Claude Code skills"),
-        ("superpowers", "obra/superpowers-marketplace", "Extended Claude capabilities"),
-        ("planning-with-files", "OthmanAdi/planning-with-files", "File-based planning workflow"),
-    ]
+    config = load_recommendations_config()
+    recommendations_by_category = config.get("category_recommendations", {})
+    default_recommendations = config.get("default_recommendations", [])
 
     recommendations = []
     seen_names = set()
@@ -274,30 +241,32 @@ def get_personalized_recommendations(installed_categories: Set[str], limit: int 
     # Add category-specific recommendations
     for category in installed_categories:
         if category in recommendations_by_category:
-            for name, repo, desc in recommendations_by_category[category]:
-                if name not in seen_names:
+            for item in recommendations_by_category[category]:
+                name = item.get("name", "")
+                if name and name not in seen_names:
                     recommendations.append(RecommendedSkill(
                         name=name,
                         installs=None,
                         source="personalized",
-                        repo=repo,
-                        description=desc,
+                        repo=item.get("repo"),
+                        description=item.get("description"),
                         install_command=f"claude /install {name}",
                         category=category
                     ))
                     seen_names.add(name)
 
     # Fill with defaults if needed
-    for name, repo, desc in default_recommendations:
+    for item in default_recommendations:
         if len(recommendations) >= limit:
             break
-        if name not in seen_names:
+        name = item.get("name", "")
+        if name and name not in seen_names:
             recommendations.append(RecommendedSkill(
                 name=name,
                 installs=None,
                 source="personalized",
-                repo=repo,
-                description=desc,
+                repo=item.get("repo"),
+                description=item.get("description"),
                 install_command=f"claude /install {name}"
             ))
             seen_names.add(name)

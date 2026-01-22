@@ -15,7 +15,13 @@ import json
 import sys
 import argparse
 import subprocess
+import io
 from pathlib import Path
+
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -58,7 +64,7 @@ def load_installed_plugins() -> Dict:
     if not plugins_file.exists():
         return {"version": 2, "plugins": {}}
 
-    with open(plugins_file) as f:
+    with open(plugins_file, encoding='utf-8') as f:
         return json.load(f)
 
 
@@ -68,7 +74,7 @@ def load_known_marketplaces() -> Dict:
     if not marketplaces_file.exists():
         return {}
 
-    with open(marketplaces_file) as f:
+    with open(marketplaces_file, encoding='utf-8') as f:
         return json.load(f)
 
 
@@ -85,12 +91,63 @@ def get_affected_skills(marketplace_name: str) -> List[str]:
     return affected
 
 
+def get_default_branch(repo_dir: Path) -> str:
+    """
+    Detect the default branch of a git repository.
+
+    Tries multiple methods:
+    1. Check symbolic-ref of origin/HEAD
+    2. Check remote show origin
+    3. Fall back to 'main', then 'master'
+
+    Returns: branch name (e.g., 'main', 'master')
+    """
+    # Method 1: Try symbolic-ref
+    result = subprocess.run(
+        ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode == 0:
+        # Output like: refs/remotes/origin/main
+        ref = result.stdout.strip()
+        if ref:
+            return ref.split("/")[-1]
+
+    # Method 2: Check if origin/main exists
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "origin/main"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode == 0:
+        return "main"
+
+    # Method 3: Check if origin/master exists
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "origin/master"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode == 0:
+        return "master"
+
+    # Default fallback
+    return "main"
+
+
 def git_fetch_and_check(marketplace_dir: Path) -> Tuple[str, str, int, List[str]]:
     """
     Fetch remote and check for updates.
 
     Returns: (local_commit, remote_commit, commits_behind, commit_messages)
     """
+    # Detect default branch
+    default_branch = get_default_branch(marketplace_dir)
+
     # Get local commit
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -102,14 +159,14 @@ def git_fetch_and_check(marketplace_dir: Path) -> Tuple[str, str, int, List[str]
 
     # Fetch remote
     subprocess.run(
-        ["git", "fetch", "origin", "main", "--quiet"],
+        ["git", "fetch", "origin", default_branch, "--quiet"],
         cwd=marketplace_dir,
         capture_output=True
     )
 
     # Get remote commit
     result = subprocess.run(
-        ["git", "rev-parse", "origin/main"],
+        ["git", "rev-parse", f"origin/{default_branch}"],
         cwd=marketplace_dir,
         capture_output=True,
         text=True
@@ -118,7 +175,7 @@ def git_fetch_and_check(marketplace_dir: Path) -> Tuple[str, str, int, List[str]
 
     # Count commits behind
     result = subprocess.run(
-        ["git", "rev-list", "HEAD..origin/main", "--count"],
+        ["git", "rev-list", f"HEAD..origin/{default_branch}", "--count"],
         cwd=marketplace_dir,
         capture_output=True,
         text=True
@@ -129,7 +186,7 @@ def git_fetch_and_check(marketplace_dir: Path) -> Tuple[str, str, int, List[str]
     commit_messages = []
     if commits_behind > 0:
         result = subprocess.run(
-            ["git", "log", "HEAD..origin/main", "--oneline"],
+            ["git", "log", f"HEAD..origin/{default_branch}", "--oneline"],
             cwd=marketplace_dir,
             capture_output=True,
             text=True
@@ -142,8 +199,9 @@ def git_fetch_and_check(marketplace_dir: Path) -> Tuple[str, str, int, List[str]
 
 def git_pull(marketplace_dir: Path) -> bool:
     """Pull latest changes from remote."""
+    default_branch = get_default_branch(marketplace_dir)
     result = subprocess.run(
-        ["git", "pull", "origin", "main"],
+        ["git", "pull", "origin", default_branch],
         cwd=marketplace_dir,
         capture_output=True,
         text=True
@@ -163,7 +221,7 @@ def reinstall_skill(skill_name: str, marketplace_name: str) -> bool:
     # Write command to a temporary file that can be read by Claude
     cmd_file = get_plugins_dir() / ".pending_installs"
     try:
-        with open(cmd_file, "a") as f:
+        with open(cmd_file, "a", encoding='utf-8') as f:
             f.write(f"{install_cmd}\n")
         return True
     except Exception:
@@ -324,7 +382,7 @@ def get_pending_installs() -> List[str]:
     if not cmd_file.exists():
         return []
 
-    with open(cmd_file) as f:
+    with open(cmd_file, encoding='utf-8') as f:
         commands = [line.strip() for line in f if line.strip()]
 
     # Clear the file
