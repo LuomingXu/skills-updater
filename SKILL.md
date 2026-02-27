@@ -7,6 +7,13 @@ description: Check and update installed Claude Code skills from multiple sources
 
 Manage, update, and discover Claude Code skills across multiple installation sources.
 
+## Command Existence Check
+
+1. Check `python` and `uv`
+   1. verify if the `python` command is available. If it exists, no changes are required. Skip further checks.
+   2. verify `uv` (Fallback): If `python` is not found, check if the `uv` command exists.
+2. Command Substitution: If `uv` is available, replace all subsequent `python` commands with `uv run`.
+
 ## Internationalization (i18n)
 
 All scripts automatically detect user locale from environment variables and display output in the appropriate language.
